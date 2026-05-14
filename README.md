@@ -4,6 +4,18 @@ it follows API parts that exposed by python API.
 
 > AI disclaimer: code of tools/nanobind_cgen.nim fully AI generated, without extensive refactorings etc, but generated api design and parsing ideas is my work and it spend 4 days to achieve this result
 
+## Bindings generation
+
+> [!NOTE]
+> Generator requires nim
+
+```sh
+atlas install --feature=gen
+nim generate
+```
+
+<br>
+
 It has several differences from the original ProxQR API: each function has a proxsuite_c_context parameter,
 which needed to implement error handling API:
 ```c
