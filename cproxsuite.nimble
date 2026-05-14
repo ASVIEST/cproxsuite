@@ -1,3 +1,6 @@
+feature "genlib":
+  requires "zippy"
+
 after install:
   block clonning:
     when defined(feature.cproxsuite.genlib):
