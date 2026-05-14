@@ -6,7 +6,7 @@ const
   objectFile = buildDir / "obj" / "proxsuite_c_api.o"
   # TODO: use zig cc to crosscompile it
   staticLib = buildDir / "lib" / "libcproxsuite.a"
-  sharedLib = buildDir / "lib" / (DynlibFormat % "libcproxsuite")
+  sharedLib = buildDir / "lib" / (DynlibFormat % "cproxsuite")
 
   # It realy important to use ProxSuite
   proxsuiteConfig = """
