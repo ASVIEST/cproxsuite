@@ -137,5 +137,5 @@ when isMainModule:
 
   main(
     zigcc,
-    if zigcc: crosscompileDistributions
+    if zigcc: crosscompiledDistribution
     else: currentDistribution)
