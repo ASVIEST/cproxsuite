@@ -63,12 +63,12 @@ proc main(
         else: ".so"
 
     compiledObjects[target] = genTempPath("proxsuite_c_api", ".obj")
-    sharedLibs[target] = genTempPath("proxsuite_c_api", ".a")
-    staticLibs[target] = genTempPath("proxsuite_c_api", dynlibFormat)
+    sharedLibs[target] = genTempPath("proxsuite_c_api", dynlibFormat)
+    staticLibs[target] = genTempPath("proxsuite_c_api", ".a")
 
   var cmds: seq[string] = @[]
   for target in distributions:
-    cmds.add cc & "-std=c++17 -O2 -fPIC " &
+    cmds.add cc & "-std=c++17 -O2 -g0 -fPIC " &
       "-DPROXSUITE_HELPERS_INSTRUCTION_SET_HPP " &
       "-Igenerated " &
       "-I" & includeDir & " " &
@@ -86,12 +86,25 @@ proc main(
     let opath = compiledObjects[target]
 
     cmds.add ar & "rcs " & staticLibs[target] & " " & opath
-    cmds.add cc & "-shared -o " & sharedLibs[target] &
+    cmds.add cc & "-shared -s -o " & sharedLibs[target] &
       " " & opath & (
       if zigcc: " " & "-target " & target
       else: "")
 
   assert execProcesses(cmds, processOptions) == 0
+
+  let strip = findExe("llvm-strip")
+  if strip.len > 0:
+    cmds = @[]
+    for target in distributions:
+      cmds.add strip & " --strip-debug " & staticLibs[target]
+      cmds.add strip & " --strip-unneeded " & sharedLibs[target]
+
+    assert execProcesses(cmds, processOptions) == 0
+  else:
+    stdout.styledWriteLine(
+      fgYellow,
+      "NOTE: llvm-strip not found, distribution can have debug info")
 
   for target in distributions:
     let
