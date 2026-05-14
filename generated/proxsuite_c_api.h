@@ -67,8 +67,8 @@ typedef enum proxsuite_c_eigen_value_estimate_method_option {
 } proxsuite_c_eigen_value_estimate_method_option;
 
 typedef enum proxsuite_c_hessian_type {
-  PROXSUITE_C_HESSIAN_TYPE_DENSE = 0,
-  PROXSUITE_C_HESSIAN_TYPE_ZERO = 1,
+  PROXSUITE_C_HESSIAN_TYPE_ZERO = 0,
+  PROXSUITE_C_HESSIAN_TYPE_DENSE = 1,
   PROXSUITE_C_HESSIAN_TYPE_DIAGONAL = 2
 } proxsuite_c_hessian_type;
 
@@ -96,8 +96,8 @@ typedef enum proxsuite_c_qp_solver_output {
 
 typedef enum proxsuite_c_sparse_backend {
   PROXSUITE_C_SPARSE_BACKEND_AUTOMATIC = 0,
-  PROXSUITE_C_SPARSE_BACKEND_MATRIX_FREE = 1,
-  PROXSUITE_C_SPARSE_BACKEND_SPARSE_CHOLESKY = 2
+  PROXSUITE_C_SPARSE_BACKEND_SPARSE_CHOLESKY = 1,
+  PROXSUITE_C_SPARSE_BACKEND_MATRIX_FREE = 2
 } proxsuite_c_sparse_backend;
 
 typedef struct proxsuite_c_backward_data_double proxsuite_c_backward_data_double;

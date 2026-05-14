@@ -50,6 +50,7 @@ type
   EnumValueBinding = object
     pyName: string
     cppName: string
+    value: string
     doc: string
     loc: string
 
@@ -826,10 +827,17 @@ proc addMethod(cls: ClassBinding; meth: MethodBinding) =
 proc addEnumValue(en: EnumBinding; value: EnumValueBinding) =
   for i in 0 ..< en.values.len:
     if en.values[i].pyName == value.pyName:
+      if en.values[i].value.len == 0 and value.value.len > 0:
+        en.values[i].value = value.value
       if en.values[i].doc.len == 0 and value.doc.len > 0:
         en.values[i].doc = value.doc
       return
   en.values.add value
+
+type
+  EnumValueQuery = object
+    en: EnumBinding
+    valueIndex: int
 
 proc collectBindingConstruct(n: JsonNode; model: var Model) =
   let kind = jstr(n, "kind")
@@ -1288,6 +1296,104 @@ class_<T> bind_vector(module_ m, const char* name) {
                  "#include <nanobind/nanobind.h>\n" &
                  "#endif\n")
 
+proc enumProbeIncludes(cfg: Config): seq[string] =
+  if cfg.defaultImplIncludes:
+    result.add [
+      "proxsuite/proxqp/dense/wrapper.hpp",
+      "proxsuite/proxqp/sparse/wrapper.hpp",
+      "proxsuite/proxqp/dense/model.hpp",
+      "proxsuite/proxqp/sparse/model.hpp",
+      "proxsuite/proxqp/dense/workspace.hpp",
+      "proxsuite/proxqp/results.hpp",
+      "proxsuite/proxqp/settings.hpp",
+      "proxsuite/proxqp/status.hpp",
+      "proxsuite/helpers/version.hpp",
+      "proxsuite/helpers/instruction-set.hpp"
+    ]
+  result.add cfg.implIncludes
+
+proc resolveEnumValues(model: var Model; cfg: Config) =
+  var queries: seq[EnumValueQuery]
+  var source = "#include <iostream>\n"
+  for incl in enumProbeIncludes(cfg):
+    source.add "#include <" & incl & ">\n"
+  source.add "\nusing namespace proxsuite;\n"
+  source.add "using namespace proxsuite::proxqp;\n"
+  source.add "using namespace proxsuite::proxqp::dense;\n"
+  source.add "using namespace proxsuite::proxqp::sparse;\n"
+  source.add "using namespace proxsuite::helpers;\n"
+  source.add "\nint main() {\n"
+
+  for _, en in model.enums:
+    for i, value in en.values:
+      if value.value.len == 0:
+        queries.add EnumValueQuery(en: en, valueIndex: i)
+        source.add "  std::cout << \"" & $(queries.len - 1) & "\\t\" << "
+        source.add "static_cast<long long>(" & en.cppType & "::" &
+                   value.cppName & ") << \"\\n\";\n"
+
+  if queries.len == 0:
+    return
+
+  source.add "  return 0;\n}\n"
+
+  let base = getTempDir() / ("nanobind_cgen_enum_values_" & $getCurrentProcessId())
+  let sourcePath = base & ".cpp"
+  let exePath = base
+  writeFile(sourcePath, source)
+
+  var args = @[
+    cfg.clangExe,
+    "-std=" & cfg.cppStd,
+    "-I" & cfg.projectRoot / "include",
+    "-I" & cfg.bindingsDir / "src",
+    "-I" & cfg.bindingsDir / "external" / "nanobind" / "include",
+    "-I" & cfg.projectRoot / "external" / "cereal" / "include",
+    "-I/usr/include/eigen3"
+  ]
+  let astStubDir = ensureAstStubs(cfg)
+  if astStubDir.len > 0:
+    args.add "-I" & astStubDir
+  args.add cfg.clangArgs
+  args.add sourcePath
+  args.add "-o"
+  args.add exePath
+
+  let compileCmd = args.mapIt(quoteShell(it)).join(" ")
+  let compileRes = execCmdEx(compileCmd, options = {poUsePath, poStdErrToStdOut})
+  if compileRes.exitCode != 0:
+    stderr.writeLine compileRes.output
+    quit "clang++ enum value probe failed", compileRes.exitCode
+
+  let runRes = execCmdEx(quoteShell(exePath), options = {poUsePath, poStdErrToStdOut})
+  if runRes.exitCode != 0:
+    stderr.writeLine runRes.output
+    quit "enum value probe executable failed", runRes.exitCode
+
+  var resolved = 0
+  for line in runRes.output.splitLines:
+    if line.len == 0:
+      continue
+    let parts = line.split('\t')
+    if parts.len != 2:
+      quit "malformed enum value probe output: " & line, 1
+    let id = parseInt(parts[0])
+    if id < 0 or id >= queries.len:
+      quit "enum value probe id out of range: " & parts[0], 1
+    let q = queries[id]
+    q.en.values[q.valueIndex].value = parts[1].strip
+    inc resolved
+
+  if resolved != queries.len:
+    quit "enum value probe resolved " & $resolved & " of " & $queries.len &
+         " values", 1
+
+  try:
+    removeFile sourcePath
+    removeFile exePath
+  except OSError:
+    discard
+
 proc clangCommand(cfg: Config; input: string; dumpAst: bool; astFilter = ""): string =
   var args = @[
     cfg.clangExe,
@@ -1549,6 +1655,28 @@ proc addHeaderComment(c: var GenContext; lines: var seq[string]; doc: string;
     return
   for line in commentLines:
     lines.add line
+
+type
+  EnumValueForEmit = object
+    ordinal: int
+    binding: EnumValueBinding
+
+proc enumValueNumber(value: EnumValueBinding; fallback: int): BiggestInt =
+  if value.value.len == 0:
+    return BiggestInt(fallback)
+  try:
+    parseBiggestInt(value.value)
+  except ValueError:
+    BiggestInt(fallback)
+
+proc enumValuesForEmit(en: EnumBinding): seq[EnumValueForEmit] =
+  for i, value in en.values:
+    result.add EnumValueForEmit(ordinal: i, binding: value)
+  result.sort(proc(a, b: EnumValueForEmit): int =
+    result = cmp(enumValueNumber(a.binding, a.ordinal),
+                 enumValueNumber(b.binding, b.ordinal))
+    if result == 0:
+      result = cmp(a.ordinal, b.ordinal))
 
 proc assignCNames(model: var Model; prefix: string) =
   var used = initHashSet[string]()
@@ -2375,12 +2503,15 @@ proc emitEnums(c: var GenContext) =
     if en.values.len == 0:
       c.skipped.add en.cppType & " at " & en.loc & ": enum has no collected values"
       continue
+    let values = enumValuesForEmit(en)
     c.addHeaderComment(c.header, en.doc)
     c.header.add "typedef enum " & en.cName & " {"
-    for i, val in en.values:
-      let comma = if i + 1 < en.values.len: "," else: ""
+    for i, item in values:
+      let val = item.binding
+      let comma = if i + 1 < values.len: "," else: ""
+      let value = if val.value.len > 0: val.value else: $item.ordinal
       c.addHeaderComment(c.header, val.doc, "  ")
-      c.header.add "  " & (en.cName & "_" & cIdent(val.pyName)).toUpperAscii & " = " & $i & comma
+      c.header.add "  " & (en.cName & "_" & cIdent(val.pyName)).toUpperAscii & " = " & value & comma
     c.header.add "} " & en.cName & ";"
     c.header.add ""
 
@@ -2701,6 +2832,7 @@ when isMainModule:
   var model = Model()
   for ast in parseAst(cfg):
     walkAst(ast, model)
+  resolveEnumValues(model, cfg)
   assignCNames(model, cfg.cPrefix)
 
   let rendered = renderApi(model, cfg)
