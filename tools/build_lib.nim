@@ -107,7 +107,7 @@ proc main(
       createDir(buildDir)
 
     writeFile(
-      buildDir/"libcproxsuite" & target & ".zip",
+      buildDir/"libcproxsuite_" & target & ".zip",
       createZipArchive(zip))
 
 when isMainModule:
